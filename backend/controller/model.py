@@ -11,6 +11,7 @@ from haystack.reader.farm import FARMReader
 from haystack.retriever.elasticsearch import ElasticsearchRetriever
 from pydantic import BaseModel
 
+from backend.controller.rasa_api import get_intent, get_answer
 from backend.controller.autocomplete import addQuestionToAutocomplete
 
 from backend.config import (
@@ -145,22 +146,28 @@ def ask(model_id: int, request: Query):
             request.filters = {key: [value] for key, value in request.filters.items() if value is not None}
             logger.info(f" [{datetime.now()}] Request: {request}")
 
-        result = finder.get_answers(
-            question=question,
-            top_k_retriever=request.top_k_retriever,
-            top_k_reader=request.top_k_reader,
-            filters=request.filters,
-        )
-        results.append(result)
+        intent_json = get_intent(question)
+        intent_bool = intent_json['bool']
+        if intent_bool:
+            response = get_answer(question)
+            return {"results": response}
+        else:
+            result = finder.get_answers(
+                question=question,
+                top_k_retriever=request.top_k_retriever,
+                top_k_reader=request.top_k_reader,
+                filters=request.filters,
+            )
+            results.append(result)
 
-        resp_time = round(time.time() - t1, 2)
-        logger.info({"time": resp_time, "request": request.json(), "results": results})
+            resp_time = round(time.time() - t1, 2)
+            logger.info({"time": resp_time, "request": request.json(), "results": results})
 
-        # remember questions with result in the autocomplete
-        if len(results) > 0:
-            addQuestionToAutocomplete(question)
+            # remember questions with result in the autocomplete
+            if len(results) > 0:
+                addQuestionToAutocomplete(question)
 
-        return {"results": results}
+            return {"results": results}
 
 
 @router.post("/models/{model_id}/faq-qa", response_model=Response, response_model_exclude_unset=True)
@@ -174,22 +181,29 @@ def ask_faq(model_id: int, request: Query):
 
     results = []
     for question in request.questions:
+
         if request.filters:
             # put filter values into a list and remove filters with null value
             request.filters = {key: [value] for key, value in request.filters.items() if value is not None}
             logger.info(f" [{datetime.now()}] Request: {request}")
 
-        # temporary routing of requests by language
-        result = finder.get_answers_via_similar_questions(
-            question=question, top_k_retriever=request.top_k_retriever, filters=request.filters,
-        )
-        results.append(result)
+        intent_json = get_intent(question)
+        intent_bool = intent_json['bool']
+        if intent_bool:
+            response = get_answer(question)
+            return {"results": response}
+        else:
+            # temporary routing of requests by language
+            result = finder.get_answers_via_similar_questions(
+                question=question, top_k_retriever=request.top_k_retriever, filters=request.filters,
+            )
+            results.append(result)
 
-        resp_time = round(time.time() - t1, 2)
-        logger.info({"time": resp_time, "request": request.json(), "results": results})
+            resp_time = round(time.time() - t1, 2)
+            logger.info({"time": resp_time, "request": request.json(), "results": results})
 
-        # remember questions with result in the autocomplete
-        if len(results) > 0:
-            addQuestionToAutocomplete(question)
+            # remember questions with result in the autocomplete
+            if len(results) > 0:
+                addQuestionToAutocomplete(question)
 
-        return {"results": results}
+            return {"results": results}
